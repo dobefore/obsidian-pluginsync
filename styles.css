@@ -1,0 +1,22 @@
+/*
+
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+
+If your plugin does not need CSS, delete this file.
+
+*/
+
+/* used in log.ts */
+.op-scrollable {
+    overflow-y: scroll;
+    /* min-height: 280px; */
+    max-height: 280px;
+    user-select: text;
+}
+
+.op-pre {
+    white-space: pre-wrap;
+}
+
+
