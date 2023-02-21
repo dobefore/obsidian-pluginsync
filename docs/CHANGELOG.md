@@ -1,4 +1,65 @@
 this file keeps track of how the plugin is made.
+It is tiresome and confused by the storm of information or words.Maybe it's better to arrange
+ information in chronical order.To escape the difficult part,I switch to the server side,but the client part must be done before starting the server.
+
+Fix issue about accessing undefined property inside this.app.vault.on("rename",this.method).use
+sytax ()=>{}.
+
+Work on sync method `create`.To construct a http request,headers:path(not include vault name),mtime,ctime,hostKey.body:empty. put those header values in a header key-value pair.the key name  maybe called `obsidian-sync`.In order to be compatible with other method,headers may also include oldPath(in rename).
+
+Work on sync method `rename`.To construct a http request,headers:path(not include vault name),mtime,ctime,hostKey.body:empty. put those header values in a header key-value pair.the key name  maybe called `obsidian-sync`.In order to be compatible with other method,headers may also include oldPath(in rename).
+ 
+
+Start a timer.When time is on,start sync.
+
+add a queue to store file event info pushed by file event watcher. A map to wrapper the queue,the key is file event name.
+
+maintain a map its key is the filename,value is event.
+when the obsidian first open,value is empty.
+first scan all files,send their file stats to the server via meta.on thte server,if server data
+is empty ,mark the file stats with create,this means the server wants the client to upload all files to it.
+If server has the file that client does not,e.g. delete by client,the server tries to send the file 
+A rename event can be considered as a file created and a file deleted on the server.
+
+If split sync into two part,one is when the vault is launched,the other is by setting timer.But when vault sync fails,then the timer-way should be synced incompletely.It seems both way need to
+send file stats of all files to the server.So both these two sceniories should use the same sync logic.
+what the client does is send file stats .Server determines which file should be upload or download ,or modify.
+
+the sync conditions:
+Send file stats info via meta.file info from both sides will be compared.
+A file does not exist on the server but does on the client is considered as added/created on client. 
+A file does not exist on the client but does on the server is considered as delete on client.
+A file exists both on the client and on the server,marked as modify 
+
+SO A client request a renamed file would be like : the server search the records to get the latest record of the file of old name.However,this record is marked deleted by previous client
+sync.Current request can go on as if the file has not been deleted,but the server will send a delete order to the current client to ask the client to delete the file of old name and download the file of new name.
+
+fill in the sync protocol method startSync,this is intended to be a full sync.By "full sync" I mean file stats of all files will be uploaded and handled.
+
+---
+Work on meta method
+
+input argument:file stats of all files.they wil be sent to be compared on the server.
+receive argument:an array of interface {file action,filename}
+
+In order to access this.app,move code from startSync to this.sync in the scope of pluginSyncPugin.
+
+---
+Provided meta resposnse has been recrive ,then how can I determine file pointer(TabstractFile) just by a filename? 
+
+Luckily An array of All files is instantiated in the begining .I can retrieve what I need.
+
+---
+Work on delete 
+
+no sending requests to server,require clients to move files to trash.
+
+---
+Work on method download
+
+decide that what request body the client should send and what reponse body the server should send back.
+Send a bunch of filenames to server,in return,server sends back file entities including path
+and content.
 
 # UI widgets
 ## log window 

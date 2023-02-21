@@ -1,10 +1,10 @@
 import { logMessageStore, logStore } from 'lib/commonlib/stores';
 import { LOG_LEVEL } from 'lib/commonlib/types';
-import { fileEventType } from 'lib/file_event_type';
+import {  fileAction, FileEventQueue, fileEventType,  FileInfo,  setFileInfo } from 'lib/file_event_type';
 import { LogDisplayModal, Logger } from 'lib/log';
 import { SampleSettingTab } from 'lib/settingtab';
 import { HostKeyRequest, SyncClient } from 'lib/syncProtocol';
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, TAbstractFile, TFile } from 'obsidian';
 // import sqlite3 from 'sqlite3';
 // Remember to rename these classes and interfaces!
 
@@ -35,12 +35,12 @@ export default class SyncPlugin extends Plugin {
 	//--> Basic document s
     notifies: { [key: string]: { notice: Notice; timer: NodeJS.Timeout; count: number } } = {};
 	watchedFileEventQueue = [] as string[];
+	timer: NodeJS.Timeout ;
 	getVaultName(): string {
         return this.app.vault.getName() ;
     }
 	// file event watch -re;ated methods 
-	    watchVaultCreate(file: TAbstractFile,) :void {
-
+	watchVaultCreate(file: TAbstractFile,) :void {
 this.appendWatchEvent(fileEventType.CREATE,file);
 		}    
     watchVaultDelete(file: TAbstractFile,) :void {
@@ -53,14 +53,11 @@ this.appendWatchEvent(fileEventType.RENAME,file,oldPath);
     }
 	
     watchVaultModify(file: TAbstractFile,) :void {
-		new Notice(`${this.settings.SyncInterval}`);
-			Logger(`${this.settings.SyncInterval.toString()}`);
-
 		this.appendWatchEvent(fileEventType.MODIFY,file);
     }
 /**  check whether the live sync mode is enabled,if so stop appending events to queue*/ 
   appendWatchEvent(type: fileEventType, file: TAbstractFile,oldPath?:string) :void {
-		this.watchedFileEventQueue.push(`first queue ${file.path} `);
+		FileEventQueue.set(type,setFileInfo(file as TFile,oldPath));
 
 }
 // file event watch -re;ated methods ends here
@@ -123,22 +120,110 @@ this.appendWatchEvent(fileEventType.RENAME,file,oldPath);
             }
         }
     }
+
+
   registerFileWatchEvents() {
-	Logger("register file watch event");
-        this.registerEvent(this.app.vault.on("modify", this.watchVaultModify));
-        this.registerEvent(this.app.vault.on("delete", this.watchVaultDelete));
-        this.registerEvent(this.app.vault.on("rename", this.watchVaultRename));
-        this.registerEvent(this.app.vault.on("create",this.watchVaultCreate));
-    }
-	async onload() {
-		    logStore.subscribe(e => this.addLog(e.message, e.level, e.key));
-        Logger("loading plugin");
-		await this.loadSettings();
- this.client=new SyncClient(this.settings.url);
+		// It's weird anyway.If I directly put this.watchVaultDelete in this.app.vault.on()
+		// and I want to access property this.settings inside watchVaultDelete,It will
+		// throw errors that show me undefined property. So do it the following way
+        this.registerEvent(this.app.vault.on("modify", (file)=>{console.log(`${this.settings.SyncInterval}`);
+	this.watchVaultModify(file);
+	}));
+        this.registerEvent(this.app.vault.on("delete", (file)=>{console.log(`${this.settings.SyncInterval}`);
+	this.watchVaultDelete(file);
+	}));
+        this.registerEvent(this.app.vault.on("rename", (file,oldPath)=>{console.log(`${this.settings.SyncInterval}`);
+
+this.watchVaultRename(file,oldPath);
+	}));
+        this.registerEvent(this.app.vault.on("create",(file)=>{console.log(`${this.settings.SyncInterval}`);
+
+		this.watchVaultCreate(file);
+	})); }
+	async sync() {
+		console.log("time is on,sync now")
 const credentials:HostKeyRequest={
 	username:this.settings.username,
 	password:this.settings.password,
 };
+// get fuke stats
+const mdFiles=this.app.vault.getMarkdownFiles();
+// I prepare to put all methods in starSync,nut some methods need to access this,app.
+		// await	this.client.startSync(credentials,mdfiles);
+
+const ret=await this.client.host_key(credentials);
+if (!ret) { 
+  console.error("user authentication fails");
+Logger("user authentication fails");
+return ;
+}
+  // construct an array of fileinfo from an array of Tfile s.
+  const fa=mdFiles.map((value)=> {
+    const fileinfo:FileInfo={
+      path: value.path,
+      mtime: value.stat.mtime,
+      ctime: value.stat.ctime,
+    };
+    return fileinfo;
+  })
+console.log(`${fa}`);
+
+// run meta 
+const metaResp= await this.client.meta(fa);
+if (metaResp==undefined) {
+  Logger("meta request response fails");
+  return;
+}
+const toDelete=metaResp.metaInner.filter((item)=>{
+return item.action==fileAction.DELETE;
+});
+const toDownload=metaResp.metaInner.filter((item)=>{
+return item.action==fileAction.DOWNLOAD;
+});
+const toUpload=metaResp.metaInner.filter((item)=>{
+return item.action==fileAction.UPLOAD;
+});
+  
+// make request download
+// this will download files from server
+  const downloadResponse=  await  this.client.download(toDownload.map((item)=>{return item.flleName;}));
+if (downloadResponse==undefined) {
+	return;
+}
+downloadResponse.files.forEach(async (item)=>{await this.app.vault.adapter.write(item.fileName,item.content);});
+ // make request upload
+// this will upload files from server
+ await this.client.upload();
+    
+ // delete operations carries at last.
+toDelete.forEach(async (item)=>{
+// do not make http delete,as the server has already carries the delete operation by mark the
+// corresponding file deleted.
+// this will delete related files from the local or in the case of obsidian,move the files 
+// to trash.
+const filep=mdFiles.find((itemin)=>{
+	return itemin.name==item.flleName;
+});
+if (filep==undefined) {
+	return;
+}
+// broadly that fileo is undefined is not possible
+await this.app.vault.trash(filep,false);
+});
+	
+	}
+async	startSyncTimer() {
+		if (this.timer) clearInterval(this.timer);
+		this.timer = setInterval(async () => {
+		await	this.sync();
+		}, this.settings.SyncInterval);
+	}
+	async onload() {
+		logStore.subscribe(e => this.addLog(e.message, e.level, e.key));
+        Logger("loading plugin");
+		await this.loadSettings();
+ this.client=new SyncClient(this.settings.url);
+
 		// This creates an icon in the left ribbon.
 		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
 			// Called when the user clicks the icon.
@@ -154,11 +239,14 @@ const credentials:HostKeyRequest={
 // begin to watch file events after obsidian layout is ready
 			this.app.workspace.onLayoutReady(async () => {
 				// make request host_kry to authenticate user
-		await	this.client.host_key(credentials);
             this.registerFileWatchEvents(); 
-		})
+		});
+if (this.settings.periodicSync) {
+await	this.startSyncTimer();
 
-		// This adds a simple command that can be triggered anywhere
+
+}
+	// This adds a simple command that can be triggered anywhere
 		this.addCommand({
 			id: 'open-sample-modal-simple',
 			name: 'Open sample modal (simple)',
@@ -210,7 +298,8 @@ const credentials:HostKeyRequest={
 	}
 
 	onunload() {
-
+console.log('Unloading SyncClient plugin');
+    clearInterval(this.timer);
 	}
 
 	async loadSettings() {
