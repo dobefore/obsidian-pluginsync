@@ -13,10 +13,12 @@ UPLOAD,
 DOWNLOAD,
 DELETE,
 CHUNK,
+Modify
 // ... more 
 }
 
 export interface FileInfo {
+  name:string,
  path: string,
       mtime: number,
       ctime: number,
@@ -24,6 +26,7 @@ export interface FileInfo {
 export function setFileInfo(file:TFile,oldPath?:string):FileInfo{
   
   const fi= {
+    name:file.name,
   path: file.path,
   mtime: file.stat.mtime,
   ctime: file.stat.ctime,

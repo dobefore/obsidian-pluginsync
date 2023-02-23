@@ -61,6 +61,13 @@ decide that what request body the client should send and what reponse body the s
 Send a bunch of filenames to server,in return,server sends back file entities including path
 and content.
 
+--- 
+Work on method upload 
+client should send file contents with their paths.This time I use file name to get its corresponding Tfile type.
+
+--- 
+As for the condition in which two files exists both in server and in client,this need to split
+filr into chunks and compare.It needs to wait for the server side  finishes implementation of methods upload,download,meta.
 # UI widgets
 ## log window 
 First I want to add some UI widgets.
