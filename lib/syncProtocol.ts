@@ -18,7 +18,7 @@ interface MetaResponse {
 }
 interface MetaInner {
   action: fileAction;
-  flleName: string;
+  fileinfo: FileInfo;
 }
 export interface DownloadRequest {
     filenames: string[],
@@ -28,10 +28,13 @@ export interface DownloadResponse {
 }
 // can be used in both download and upload
 export interface PFile {
-  path: string;
-  content: string;
+     states:FileInfo,
+     content: string,
+
+  // path: string;
+  // content: string;
 }
-export interface UploadRequesst {
+export interface UploadRequest {
     files:PFile[] ,
 }
 // should add a meta method to notify the client that new changes have been made on the server
@@ -181,6 +184,8 @@ const body:MetaRequest= {
 
       if (response.status == 200) {
         const resp: MetaResponse = await response.json;
+        console.log(`meta${resp.metainner.first()?.action}`)
+        console.log(`${fileAction.UPLOAD}`)
         return resp;
         // console.log('Host key received: ', hostKeyResponse.key);
       } else {
@@ -197,7 +202,7 @@ const body:MetaRequest= {
     const headers = {
       "Content-Type": "application/json", "obsidian-sync": JSON.stringify({ k: this.hostKey }),
     };
-const body:UploadRequesst={
+const body:UploadRequest={
   files:files,
 }
     const param: RequestUrlParam = {

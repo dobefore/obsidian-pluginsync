@@ -68,6 +68,19 @@ client should send file contents with their paths.This time I use file name to g
 --- 
 As for the condition in which two files exists both in server and in client,this need to split
 filr into chunks and compare.It needs to wait for the server side  finishes implementation of methods upload,download,meta.
+
+---
+adj$ust some request parameters in client method upload and download to be the same as server. yy
+
+to UploadRequesst:add interface FileInfo. Done
+
+Now test already methods.
+Now I create a flle add.md before sync.delete server db.retry.no such table content.It seems that rusqlite only create one table meta,leave content alone.use method execute_batch when sql statements separated by ;
+
+The process seems going smoothly,but no data saved to db on server.By debugging,server reveive 
+UploadRequesst { files: [] }.but in meta a file sure is marked Upload.I change request structs in case they are not equal.It seems the server not send correct meta info back,so cause trouble in subswquent actions. 
+It turns out to be the problem of enum type comparision.string is set after type.
+
 # UI widgets
 ## log window 
 First I want to add some UI widgets.

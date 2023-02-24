@@ -9,11 +9,11 @@ export enum fileEventType {
 /** these are opperations the client should take,something like a commander is giving orders */
 export enum fileAction {
   /**  this indicates the client should upload a file to the server */
-UPLOAD,
-DOWNLOAD,
-DELETE,
-CHUNK,
-Modify
+UPLOAD="upload",
+DOWNLOAD="download",
+DELETE="delete",
+CHUNK="chunk",
+Modify="modify"
 // ... more 
 }
 

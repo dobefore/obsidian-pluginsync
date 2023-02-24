@@ -186,7 +186,6 @@ export default class SyncPlugin extends Plugin {
     const mdFiles = this.app.vault.getMarkdownFiles();
     // I prepare to put all methods in starSync,nut some methods need to access this,app.
     // await	this.client.startSync(credentials,mdfiles);
-
     const ret = await this.client.host_key(credentials);
     if (!ret) {
       console.error("user authentication fails");
@@ -196,7 +195,7 @@ export default class SyncPlugin extends Plugin {
     // construct an array of fileinfo from an array of Tfile s.
     const fa = mdFiles.map((value) => {
       const fileinfo: FileInfo = {
-        name:value.name,
+        name: value.name,
         path: value.path,
         mtime: value.stat.mtime,
         ctime: value.stat.ctime,
@@ -210,50 +209,57 @@ export default class SyncPlugin extends Plugin {
       Logger("meta request response fails");
       return;
     }
-    
-    console.log(`${metaResp.metainner}`);
+
     const toDelete = metaResp.metainner.filter((item) => {
-      return item.action == fileAction.DELETE;
+       item.action === fileAction.DELETE
     });
     const toDownload = metaResp.metainner.filter((item) => {
-      return item.action == fileAction.DOWNLOAD;
+       item.action === fileAction.DOWNLOAD
     });
-    const toUpload = metaResp.metainner.filter((item) => {
-      return item.action == fileAction.UPLOAD;
-    });
-
+    const toUpload = metaResp.metainner.filter((item) =>{ 
+     return item.action=== fileAction.UPLOAD;});
     // make request download
     // this will download files from server
-    const downloadResponse = await this.client.download(
-      toDownload.map((item) => {
-        return item.flleName;
-      })
-    );
-    if (downloadResponse == undefined) {
-      return;
-    }
-    downloadResponse.files.forEach(async (item) => {
-      await this.app.vault.adapter.write(item.path, item.content);
+    const fnames = toDownload.map((item) => {
+      return item.fileinfo.name;
     });
+    if (fnames.length != 0) {
+      const downloadResponse = await this.client.download(fnames);
+      if (downloadResponse != undefined) {
+      downloadResponse.files.forEach(async (item) => {
+        await this.app.vault.adapter.write(item.states.path, item.content);
+      });
+    }
+  }
     // make request uploadexportP
     // this will upload files from server
 
     //get Tfile types according to file name
     const uploadFiles: PFile[] = [];
-    toUpload.forEach(async (item) => {
-      const md = mdFiles.find((md) => {
-        return md.name == item.flleName;
-      });
-      if (md != undefined) {
+    for (const item of toUpload) {
+    const md=this.app.vault.getAbstractFileByPath(item.fileinfo.path) ;
+    if(md==null)
+    {
+      console.log("null")
+      continue;
+    }
+   const mdd=md as TFile;
+ const states: FileInfo = {
+          name: mdd.name,
+          path: mdd.path,
+          mtime: mdd .stat.mtime,
+          ctime: mdd.stat.ctime,
+        };
         const file: PFile = {
-          path: md.path,
+          states: states,
           content: await this.app.vault.adapter.read(md.path),
         };
         uploadFiles.push(file);
-      }
-    });
-
+    }
+if (uploadFiles.length!=0) {
+  
     await this.client.upload(uploadFiles);
+}
 
     // delete operations carries at last.
     toDelete.forEach(async (item) => {
@@ -262,7 +268,7 @@ export default class SyncPlugin extends Plugin {
       // this will delete related files from the local or in the case of obsidian,move the files
       // to trash.
       const filep = mdFiles.find((itemin) => {
-        return itemin.name == item.flleName;
+        return itemin.name == item.fileinfo.name;
       });
       if (filep == undefined) {
         return;
