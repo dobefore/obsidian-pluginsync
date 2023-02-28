@@ -1,5 +1,5 @@
 import { Logger } from "./log";
-import { requestUrl, RequestUrlParam, TFile } from "obsidian";
+import { requestUrl, RequestUrlParam,  } from "obsidian";
 import { fileAction, FileInfo } from "./file_event_type";
 // first just defines method signatures,including arguments and return types.
 export interface HostKeyRequest {
@@ -10,13 +10,16 @@ export interface HostKeyRequest {
 export interface HostKeyResponse {
   key: string;
 }
-export interface MetaRequest {
-  states: FileInfo[];
+export interface MetaRequest { 
+  states:MetaInner[]
 }
+// export interface MetaRequest {
+//   states: FileInfo[];
+// }
 interface MetaResponse {
   metainner: MetaInner[];
 }
-interface MetaInner {
+export interface MetaInner {
   action: fileAction;
   fileinfo: FileInfo;
 }
@@ -45,7 +48,7 @@ export interface SyncProtocol {
   download(filenames: string[]): Promise<DownloadResponse | undefined>;
   upload(files: PFile[]): Promise<void>;
 
-  meta(fileinfo: FileInfo[]): Promise<MetaResponse | undefined>;
+  meta(fileinfo: MetaInner[]): Promise<MetaResponse | undefined>;
   modify(hostKeyRequest: HostKeyRequest): Promise<void>;
 }
 export const syncHeaderName = "obsidian-sync";
@@ -56,61 +59,62 @@ export class SyncClient implements SyncProtocol {
   constructor(serverAddress: string) {
     this.serverAddress = serverAddress;
   }
-  /**I would say it is a fill sync,as all files in the vault will be compared to the server. */
-  async startSync(hostKeyRequest: HostKeyRequest, mdFiles: TFile[]) {
-    const ret = await this.host_key(hostKeyRequest);
-    if (!ret) {
-      console.error("user authentication fails");
-      Logger("user authentication fails");
-      return;
-    }
-    // construct an array of fileinfo from an array of Tfile s.
-    const fa = mdFiles.map((value) => {
-      const fileinfo: FileInfo = {
-        name:value.name,
-        path: value.path,
-        mtime: value.stat.mtime,
-        ctime: value.stat.ctime,
-      };
-      return fileinfo;
-    });
-    console.log(`${fa}`);
+  // /**I would say it is a fill sync,as all files in the vault will be compared to the server. */
+  // async startSync(hostKeyRequest: HostKeyRequest, mdFiles: TFile[]) {
+  //   const ret = await this.host_key(hostKeyRequest);
+  //   if (!ret) {
+  //     console.error("user authentication fails");
+  //     Logger("user authentication fails");
+  //     return;
+  //   }
+  //   // construct an array of fileinfo from an array of Tfile s.
+  //   const fa = mdFiles.map((value) => {
+  //     const fileinfo: FileInfo = {
+  //       name:value.name,
+  //       path: value.path,
+  //       mtime: value.stat.mtime,
+  //       ctime: value.stat.ctime,
+  //       oldPath:""
+  //     };
+  //     return fileinfo;
+  //   });
+  //   console.log(`${fa}`);
 
-    // run meta
-    const metaResp = await this.meta(fa);
-    if (metaResp == undefined) {
-      Logger("meta request response fails");
-      return;
-    }
-    const toDelete = metaResp.metainner.filter((item) => {
-      return item.action == fileAction.DELETE;
-    });
-    const Others = metaResp.metainner.filter((item) => {
-      return item.action != fileAction.DELETE;
-    });
-    Others.forEach((item) => {
-      switch (item.action) {
-        case fileAction.DOWNLOAD:
-          // make request download
-          // this will download files from server
+  //   // run meta
+  //   const metaResp = await this.meta(fa);
+  //   if (metaResp == undefined) {
+  //     Logger("meta request response fails");
+  //     return;
+  //   }
+  //   const toDelete = metaResp.metainner.filter((item) => {
+  //     return item.action == fileAction.DELETE;
+  //   });
+  //   const Others = metaResp.metainner.filter((item) => {
+  //     return item.action != fileAction.DELETE;
+  //   });
+  //   Others.forEach((item) => {
+  //     switch (item.action) {
+  //       case fileAction.DOWNLOAD:
+  //         // make request download
+  //         // this will download files from server
 
-          break;
-        case fileAction.UPLOAD:
-          // make request upload
-          // this will upload files from server
+  //         break;
+  //       case fileAction.UPLOAD:
+  //         // make request upload
+  //         // this will upload files from server
 
-          break;
-        default:
-          break;
-      }
-    });
-    // delete operations carries at last.
-    toDelete.forEach((item) => {
-      // make request delete.
-      // this will delete related files from the local or in the case of obsidian,move the files
-      // to trash.
-    });
-  }
+  //         break;
+  //       default:
+  //         break;
+  //     }
+  //   });
+  //   // delete operations carries at last.
+  //   toDelete.forEach((item) => {
+  //     // make request delete.
+  //     // this will delete related files from the local or in the case of obsidian,move the files
+  //     // to trash.
+  //   });
+  // }
   async host_key(hostKeyRequest: HostKeyRequest): Promise<boolean> {
     const param: RequestUrlParam = {
       url: this.serverAddress + "/hostKey",
@@ -124,7 +128,7 @@ export class SyncClient implements SyncProtocol {
       if (response.status == 200) {
         const hostKeyResponse: HostKeyResponse = await response.json;
         this.hostKey = hostKeyResponse.key;
-        console.log("Host key received: ", hostKeyResponse.key);
+        Logger(`Host key received: ${hostKeyResponse.key}`);
         return true;
       } else {
         Logger("other status code");
@@ -164,14 +168,14 @@ const body:DownloadRequest={
       Logger(`request create error: ${e}`);
     }
   }
-  async meta(fileinfo: FileInfo[]) {
+  async meta(mis: MetaInner[]) {
     console.log("meta is running");
     const headers = {
       "Content-Type": "application/json",
  "obsidian-sync": JSON.stringify({ k: this.hostKey }),
     };
 const body:MetaRequest= {
-  states:fileinfo,
+  states:mis,
 }
     const param: RequestUrlParam = {
       url: this.serverAddress + "/meta",
@@ -198,7 +202,7 @@ const body:MetaRequest= {
   }
   async upload(files: PFile[]) {
     // construct rtpe File[]
-    console.log("meta is running");
+    Logger("upload is running");
     const headers = {
       "Content-Type": "application/json", "obsidian-sync": JSON.stringify({ k: this.hostKey }),
     };

@@ -1,15 +1,15 @@
 import { logMessageStore, logStore } from "lib/commonlib/stores";
 import { LOG_LEVEL } from "lib/commonlib/types";
+import * as path from 'path';
 import {
   fileAction,
-  FileEventQueue,
   fileEventType,
   FileInfo,
   setFileInfo,
 } from "lib/file_event_type";
 import { LogDisplayModal, Logger } from "lib/log";
 import { SampleSettingTab } from "lib/settingtab";
-import { HostKeyRequest, PFile, SyncClient } from "lib/syncProtocol";
+import { HostKeyRequest, MetaInner, PFile, SyncClient } from "lib/syncProtocol";
 import {
   App,
   Editor,
@@ -50,32 +50,93 @@ export default class SyncPlugin extends Plugin {
   notifies: {
     [key: string]: { notice: Notice; timer: NodeJS.Timeout; count: number };
   } = {};
-  watchedFileEventQueue = [] as string[];
+  watchedFileEventQueue = [] as MetaInner[];
   timer: NodeJS.Timeout;
   getVaultName(): string {
     return this.app.vault.getName();
   }
   // file event watch -re;ated methods
-  watchVaultCreate(file: TAbstractFile): void {
-    this.appendWatchEvent(fileEventType.CREATE, file);
+  async watchVaultCreate(file: TAbstractFile) {
+ await   this.appendWatchEvent(fileEventType.CREATE, file);
   }
-  watchVaultDelete(file: TAbstractFile): void {
-    this.appendWatchEvent(fileEventType.DELETE, file);
+  async watchVaultDelete(file: TAbstractFile) {
+   await this.appendWatchEvent(fileEventType.DELETE, file);
   }
-  watchVaultRename(file: TAbstractFile, oldPath: string): void {
-    this.appendWatchEvent(fileEventType.RENAME, file, oldPath);
+  async watchVaultRename(file: TAbstractFile, oldPath: string) {
+   await this.appendWatchEvent(fileEventType.RENAME, file, oldPath);
   }
 
-  watchVaultModify(file: TAbstractFile): void {
-    this.appendWatchEvent(fileEventType.MODIFY, file);
+async  watchVaultModify(file: TAbstractFile) {
+  await  this.appendWatchEvent(fileEventType.MODIFY, file);
   }
   /**  check whether the live sync mode is enabled,if so stop appending events to queue*/
-  appendWatchEvent(
+  async appendWatchEvent(
     type: fileEventType,
     file: TAbstractFile,
     oldPath?: string
-  ): void {
-    FileEventQueue.set(type, setFileInfo(file as TFile, oldPath));
+  ) {
+        const tfile=file as TFile;
+    switch (type) {
+      case fileEventType.CREATE:{
+        // what will happen if the file does not exist?
+        // here no mtime when a file is created
+       const  fi=await setFileInfo(tfile,tfile.stat.ctime,0,oldPath);
+       const  mi:MetaInner={
+          action:fileAction.UPLOAD,
+          fileinfo:fi,
+        };
+        this.watchedFileEventQueue.push(mi);
+        break;
+      }
+    case fileEventType.DELETE:{
+const  fi=await setFileInfo(tfile,tfile.stat.ctime,tfile.stat.mtime,oldPath);
+       const  mi:MetaInner={
+          action:fileAction.DELETE,
+          fileinfo:fi,
+        };
+        this.watchedFileEventQueue.push(mi);
+      break;
+    }
+    case fileEventType.MODIFY:{
+const  fi=await setFileInfo(tfile,tfile.stat.ctime,tfile.stat.mtime,oldPath);
+       const  mi:MetaInner={
+          action:fileAction.MODIFY,
+          fileinfo:fi,
+        };
+        this.watchedFileEventQueue.push(mi);
+      break;
+    }
+    case fileEventType.RENAME:{
+      // delete the original and upload the new one
+      // set mtime and ctime to 0 for old path.
+      if (oldPath==undefined) {
+        return;
+      }
+      const oldName=path.basename(oldPath);
+const oldfi:FileInfo={
+  name:oldName,
+  path:oldPath,
+  ctime:0,
+  mtime:0,
+  oldpath:""
+}
+const fi=await setFileInfo(tfile,tfile.stat.ctime,tfile.stat.mtime,oldPath);
+
+       const  oldmi:MetaInner={
+          action:fileAction.DELETE,
+          fileinfo:oldfi,
+        };
+        const  mi:MetaInner={
+          action:fileAction.UPLOAD,
+          fileinfo:fi,
+        };
+        this.watchedFileEventQueue.push(mi);
+        this.watchedFileEventQueue.push(oldmi);
+      break;
+    }
+      default:
+        break;
+    }
   }
   // file event watch -re;ated methods ends here
 
@@ -176,8 +237,50 @@ export default class SyncPlugin extends Plugin {
       })
     );
   }
-  async sync() {
+  /**In this method,the major work is 
+   * download files that are not in local vault.
+   
+ * upload files that are not in remote server.
+ 
+ * delete files that are marked delete in server from client
+
+  * rename files that are marked rename,not yet impl.
+
+
+  * */
+  async sync(){
+
+    console.log("full sync now"); 
+    const credentials: HostKeyRequest = {
+      username: this.settings.username,
+      password: this.settings.password,
+    }; 
+    
+    const ret = await this.client.host_key(credentials);
+    if (!ret) {
+      console.error("user authentication fails");
+      Logger("user authentication fails");
+      return;
+    }
+
+  }
+
+  /** This method is intended for use after obsidian launches
+   * 
+   * In this method,the major work is 
+   * download files that are not in local vault.
+   
+ * upload files that are not in remote server.
+ 
+ * delete files that are marked delete in server from client
+
+  * rename files that are marked rename,not yet impl.
+
+
+  * */
+  async full_sync() {
     console.log("time is on,sync now");
+    console.log(`${await this.app.vault.adapter.exists(path.dirname("thoughts.md"))}`)
     const credentials: HostKeyRequest = {
       username: this.settings.username,
       password: this.settings.password,
@@ -192,6 +295,15 @@ export default class SyncPlugin extends Plugin {
       Logger("user authentication fails");
       return;
     }
+    // get all file events
+    const fileEvents :MetaInner[]= [];
+    while (this.watchedFileEventQueue.length) {
+  const item= this.watchedFileEventQueue.pop();
+  if (item==undefined) {
+    continue
+  }
+  fileEvents.push(item)
+}
     // construct an array of fileinfo from an array of Tfile s.
     const fa = mdFiles.map((value) => {
       const fileinfo: FileInfo = {
@@ -199,22 +311,27 @@ export default class SyncPlugin extends Plugin {
         path: value.path,
         mtime: value.stat.mtime,
         ctime: value.stat.ctime,
+        oldpath:""
       };
-      return fileinfo;
+      const mi:MetaInner={
+        action:fileAction.ABSENT,
+        fileinfo:fileinfo
+      }
+      return mi;
     });
-
+const total=[...fileEvents,...fa];
     // run meta
-    const metaResp = await this.client.meta(fa);
+    const metaResp = await this.client.meta(total);
     if (metaResp == undefined) {
       Logger("meta request response fails");
       return;
     }
 
     const toDelete = metaResp.metainner.filter((item) => {
-       item.action === fileAction.DELETE
+      return item.action === fileAction.DELETE;
     });
     const toDownload = metaResp.metainner.filter((item) => {
-       item.action === fileAction.DOWNLOAD
+      return item.action === fileAction.DOWNLOAD;
     });
     const toUpload = metaResp.metainner.filter((item) =>{ 
      return item.action=== fileAction.UPLOAD;});
@@ -225,10 +342,19 @@ export default class SyncPlugin extends Plugin {
     });
     if (fnames.length != 0) {
       const downloadResponse = await this.client.download(fnames);
+      console.log("after download")
       if (downloadResponse != undefined) {
-      downloadResponse.files.forEach(async (item) => {
-        await this.app.vault.adapter.write(item.states.path, item.content);
-      });
+        // meed parent path to be used to create folder.     
+    for (const item of downloadResponse.files) {
+      Logger(`download file ${item.states.path}`)
+      const parent =path.dirname(item.states.path);
+      
+      if (! await this.app.vault.adapter.exists(parent)) {
+       await this.app.vault.createFolder(parent);
+ 
+      }
+     await this.app.vault.create(item.states.path,item.content);
+      }
     }
   }
     // make request uploadexportP
@@ -249,6 +375,7 @@ export default class SyncPlugin extends Plugin {
           path: mdd.path,
           mtime: mdd .stat.mtime,
           ctime: mdd.stat.ctime,
+          oldpath:""
         };
         const file: PFile = {
           states: states,
@@ -262,25 +389,33 @@ if (uploadFiles.length!=0) {
 }
 
     // delete operations carries at last.
-    toDelete.forEach(async (item) => {
+    for (const item of toDelete) {
       // do not make http delete,as the server has already carries the delete operation by mark the
       // corresponding file deleted.
       // this will delete related files from the local or in the case of obsidian,move the files
       // to trash.
       const filep = mdFiles.find((itemin) => {
-        return itemin.name == item.fileinfo.name;
+        return itemin.name === item.fileinfo.name;
       });
       if (filep == undefined) {
         return;
       }
+      console.log(`delete ${filep.name}}`)
+      // skip if not exist,this can gappen when A file has already been deleted from  ckient.
+      const exist=await this.app.vault.adapter.exists(filep.path);
       // broadly that fileo is undefined is not possible
+      if (exist) {
+        
       await this.app.vault.trash(filep, false);
-    });
+      }else {
+        Logger(`Ignore delete ${filep.name}`)
+      }
+    }
   }
   async startSyncTimer() {
     if (this.timer) clearInterval(this.timer);
     this.timer = setInterval(async () => {
-      await this.sync();
+      await this.full_sync();
     }, this.settings.SyncInterval);
   }
   async onload() {
@@ -305,10 +440,13 @@ if (uploadFiles.length!=0) {
     const statusBarItemEl = this.addStatusBarItem();
     statusBarItemEl.setText("Status Bar Text");
 
+
     // begin to watch file events after obsidian layout is ready
     this.app.workspace.onLayoutReady(async () => {
       // make request host_kry to authenticate user
       this.registerFileWatchEvents();
+      // do a full sync
+      await this.full_sync();
     });
     if (this.settings.periodicSync) {
       await this.startSyncTimer();

@@ -13,8 +13,9 @@ UPLOAD="upload",
 DOWNLOAD="download",
 DELETE="delete",
 CHUNK="chunk",
-Modify="modify"
+MODIFY="modify",
 // ... more 
+ABSENT="absent",
 }
 
 export interface FileInfo {
@@ -22,15 +23,28 @@ export interface FileInfo {
  path: string,
       mtime: number,
       ctime: number,
+      oldpath:string,
 }
-export function setFileInfo(file:TFile,oldPath?:string):FileInfo{
+export async function setFileInfo(file:TFile,ctime:number,mtime:number,oldPath?:string):Promise< FileInfo>{
   
+        const exist=await this.app.vault.adapter.exists(file.path);
+        if (exist) {
+  return   {
+    name:file.name,
+  path: file.path,
+  mtime: mtime,
+  ctime: ctime,
+  oldpath:oldPath==undefined ? "":oldPath,
+};        
+        }
+console.log(`file not exist whilw setting file info ${file.name}`);
   const fi= {
     name:file.name,
   path: file.path,
-  mtime: file.stat.mtime,
-  ctime: file.stat.ctime,
+  mtime: 0,
+  ctime: 0,
+  oldpath:oldPath==undefined ? "":oldPath,
 };
 return fi;
 }
-export const FileEventQueue=new Map<fileEventType,FileInfo>();
+// export const FileEventQueue=new MetaInner[];

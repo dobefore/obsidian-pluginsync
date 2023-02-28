@@ -81,6 +81,147 @@ The process seems going smoothly,but no data saved to db on server.By debugging,
 UploadRequesst { files: [] }.but in meta a file sure is marked Upload.I change request structs in case they are not equal.It seems the server not send correct meta info back,so cause trouble in subswquent actions. 
 It turns out to be the problem of enum type comparision.string is set after type.
 
+I still not understand the logic of how the obsidian notes is synced between devices.Once more list all possibllities and give solve.
+A file created,mark Upload.need other files which are not marked to be sent.
+A file renamed.discard events which the file does not exist in client.
+1.the original was in server,mark original rename.
+2. if not in,e.g.a file created and renamed.mark the new upload. 
+A file deleted,  
+A file modified,
+Not on server:
+A file created,renamed,modified,skip if file not exist in create and rename.upload
+A file created,modify,renmae,skip not exist in create and modify.upload
+
+On server: 
+A file modify ,rename,skip modify,this will cause file to keep an older version.
+
+SO a simpler way to operate on server:
+create->Upload,no matter whether file exists or not on client.
+rename->create a new record in meta and mark original rename if on server,Upload else.
+modify-> 
+file meta request includes meta containing file event and other containing not.Before sending.check the file did exist in local all file events but delete.
+on server ,first handle meta contains events.
+I can not figuew out this clearly,its complexity completely goes beyond me.Prefer to adopt current method.
+the flaws of current method?
+ waiting to be discovered...
+
+adjust parameters of client sync methods.
+
+---
+Now test method delete 
+use 2 devices.deleting a file from one device and sync against server,inspect server db.
+Then open another device to sync.
+
+server db error.file action string from db to struct.upload,in db "upload",after delete,Delete.
+serilize to str when updating meta.rename,delete seems working. but changing file paths has not 
+ yet tested.
+
+Now on another device, this time logic error.That files exist in client but not in server are considered delete is not correct.For example,upload all files from one client,another device with one file in local,if it sync,all files on server will be marked delete,this is not what we  what.
+
+It seems impossible to use one sync way to do all the job.We need one for the stete when obsidian is just launched and no file events are generated.And need one for file event-driven sync.the former is called full_sync,the later is just sync.
+
+---
+Now do file event driven sync.
+Check whether a file exists or not in client before send neta request.If not skip.
+if a file exists in both sides,it is renamed twice in client so that the iriginal will be ignored in server.
+
+So better to upload all file events.
+rename operation is considered as delete the original(mark delete) and request upload to server.
+If the file to upload does not exist,As in the case of rename twice for the first rename,  skip in client.
+
+If delete in cllient,mark delete in server in meta.
+If create in client,reqeust upload,though maybe skip if the file has been renamed
+If modify in client,request modify.
+
+This is only one side sync between one devide and server n the above.If two devices synced
+in sequence,new changes from client 1 should be synced to client 2 before client 2 write changes to server.
+
+Assume client 1 A,client 2 B,server S.empty in three.
+
+A create file a,rename it aa.
+
+server record:
+fname action usn
+aa upload 1
+
+Then B create file b,rename it bb.in meta,server receive last_usn from client,here is 0 as it is B's first sync.And server filter out records whose usn > 1 and send these records to B .
+
+These records of course will be processed,say in this case,its action is upload,we put it download. 
+
+Then it is time to handle request from B.In the end,server send latest usn 2 to client to let it store .
+
+server records:
+aa upload 1
+bb upload 2
+
+
+Client A modify aa,in meta,server receive latest usn 1 from A,server filter out records whose usn >1.That is `bb upload 2` . 
+
+Give up due to complexity.
+
+---
+compare files from both sides.
+
+That file does not exist in client but in server is considered download,Is it available?
+ 
+A create file a,rename it aa.
+client send all files and file events if any
+
+server decide in meta:
+create --> upload
+rename--> delete,upload
+mark delete if exist in db.
+
+then all files comparing.
+
+server db record:
+fname action 
+aa upload 
+
+client after meta:
+upload a,aa. skip a as not exist.
+delete a. skip as not exist.
+
+server in upload:
+write file to db.mark upload
+
+B create b,rename it bb.
+B sned all files and file events if any
+
+server decide:
+create ->upload
+rename-?delete,upload
+then all files comparison.
+download->aa
+
+server db:
+aa download
+bb upload
+
+A delete aa.
+
+server decide:
+first mark aa delete
+then comparing all files,as aa is marked delete,so it won't be downloaded,
+delete --> aa.
+
+server db:
+aa delete
+bb upload
+
+B modify aa,bb
+
+server decide:
+modify->bb
+modify->aa
+comparing all files
+delete aa (they both have aa).
+
+---
+adjust meta to be compatible with full sync and file driven sync.
+That is,put all file stats and file events in meta request.
+change  filewatchqueue to store MetaInner.
+
 # UI widgets
 ## log window 
 First I want to add some UI widgets.
